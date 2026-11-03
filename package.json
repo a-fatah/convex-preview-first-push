@@ -1,0 +1,8 @@
+{
+  "name": "convex-preview-first-push",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "convex": "1.45.0"
+  }
+}

@@ -1,0 +1,86 @@
+name: First push
+
+# Pushes this app to new preview deployments, one at a time, and prints what happened to each push.
+# Manual only, so the deploy key is never offered to a fork or a pull request.
+# Never add --verbose: verbose logs can hold admin keys, and these logs are public.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: first-push
+
+jobs:
+  push:
+    name: ${{ matrix.run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        # node-* pushes the whole app. control-* deletes convex/probeNode.ts first.
+        run: [
+          node-01, node-02, node-03, node-04, control-01,
+          node-05, node-06, node-07, node-08, control-02,
+          node-09, node-10, node-11, node-12, control-03,
+          node-13, node-14, node-15, node-16, control-04,
+          node-17, node-18, node-19, node-20, control-05
+        ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Install
+        run: npm install --no-audit --no-fund --ignore-scripts
+
+      - name: Remove the Node file
+        if: startsWith(matrix.run, 'control-')
+        run: rm convex/probeNode.ts
+
+      - name: Push to a new preview
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          PREVIEW_NAME: r${{ github.run_number }}a${{ github.run_attempt }}-${{ matrix.run }}
+        run: |
+          set +e
+
+          # A preview deploy key starts preview:<team>:<project>| and the CLI prints both names, so mask them.
+          IFS=: read -r _ team project <<< "${CONVEX_DEPLOY_KEY%%|*}"
+          for slug in "$team" "$project"; do
+            if [ -n "$slug" ]; then echo "::add-mask::$slug"; fi
+          done
+
+          started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          begin=$SECONDS
+          timeout -k 10 330 npx convex deploy --yes --typecheck=disable --preview-create "$PREVIEW_NAME" 2>&1 | tee push.log
+          code=${PIPESTATUS[0]}
+          seconds=$((SECONDS - begin))
+
+          # The name in the first https://<name>[.<region>].convex.cloud the CLI printed.
+          deployment="$(grep -oE 'https://[a-z0-9-]+(\.[a-z0-9-]+)?\.convex\.cloud' push.log | head -n 1 | sed -E 's#https://([^.]+)\..*#\1#')"
+
+          if [ "$code" -eq 0 ]; then outcome=deployed
+          elif grep -q 'start_push 408' push.log; then outcome=408
+          elif grep -q 'start_push 400.*InvalidModules' push.log; then outcome=400-InvalidModules
+          elif [ "$code" -eq 124 ] || [ "$code" -eq 137 ]; then outcome=killed-at-330s
+          elif [ -z "$deployment" ]; then outcome=no-deployment
+          else outcome=other
+          fi
+
+          line="RESULT name=$PREVIEW_NAME deployment=${deployment:-none} outcome=$outcome seconds=$seconds started=$started"
+          echo "$line"
+          echo "\`$line\`" >> "$GITHUB_STEP_SUMMARY"
+
+          # A push that didn't deploy turns its job red.
+          [ "$outcome" = deployed ]
