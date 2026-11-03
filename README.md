@@ -1,6 +1,6 @@
 # Convex first-push reproduction
 
-The first push to a new Convex preview deployment fails about half the time if the app has a `"use node"` file. This repo is the smallest app that shows it, and a workflow that pushes it to new previews one at a time.
+The first push to a new Convex preview deployment fails about half the time if the app has a `"use node"` file. This repo is the smallest app that shows it, and a workflow that pushes it to new previews one at a time. Reported in [convex/convex-backend#632](https://github.com/convex/convex-backend/issues/632).
 
 ## Results
 
